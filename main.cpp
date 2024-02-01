@@ -3,74 +3,99 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <stdexcept>
 
 using namespace std;
 
-class Token {
-private:
+struct Token {
+    char *token;
     int lineNumber;
-    int offset;
-    char *ch;
+    int lineOffset;
 
-public:
-    Token(char *ch, int lineNumber, int offset) {
-        this->ch = ch;
+    Token(char *text, int lineNumber, int lineOffset) {
+        this->token = text;
         this->lineNumber = lineNumber;
-        this->offset = offset;
+        this->lineOffset = lineOffset;
     }
 };
 
-void tokenize(string filename) {
-    ifstream file(filename);
-    if (!file.is_open()) {
-        cerr << "Error: Could not open file " << filename << endl;
-        return;
+class Tokenizer {
+private:
+    char *currToken;
+    int lineNumber;
+    int lineOffset;
+    string filename;
+    ifstream inputFile;
+    string currentLine;
+    char *delimiters;
+
+public:
+    Tokenizer(string filename) {
+        this->filename = filename;
+        this->inputFile.open(filename);
+        this->delimiters = " \n\t";
+        this->currToken = nullptr;
+        this->lineNumber = -1;
     }
 
-    string line;
-    int line_number = 0;
+    Token getToken() {
+        /*
+         * Check if file is open or close
+         * If file is open, check if the current token is null
+         *
+         * If current token is not null, continue reading from the current line till you get the next token
+         * If new token found->good
+         * Else call getToken again
+         *
+         * If current token is null, read a new line from the file
+         * Read the file till you get a new token->good
+         *
+         * check the line offset logic once and test the get token function thoroughly
+         */
 
-    while (getline(file, line)) {
-        line_number++;
-        istringstream iss(line);
-        string token;
-        int offset = 0;
-        while (iss >> token) {
-            offset = line.find(token, offset);
-            cout << "Token: " << line_number << ":" << (offset + 1) << " : " << token << endl;
-            offset += token.length();
+        if (inputFile.is_open()) {
+            if (currToken == nullptr) {
+                while (currToken == nullptr && !inputFile.eof()) {
+                    getline(inputFile, currentLine);
+                    lineNumber++;
+                    lineOffset = 0;
+                    currToken = strtok(&currentLine[0], delimiters);
+                    if (currToken != nullptr) {
+                        lineOffset = currentLine.find(currToken, lineOffset);
+                        Token token(currToken, lineNumber, lineOffset);
+                        lineOffset += strlen(currToken);
+                        return token;
+                    }
+                }
+                if (inputFile.eof()) {
+                    char *c = "";
+                    Token token(c, -1, -1);
+                    return token;
+                }
+            } else {
+                currToken = strtok(nullptr, delimiters);
+                if (currToken == nullptr) {
+                    return getToken();
+                }
+                lineOffset = currentLine.find(currToken, lineOffset);
+                Token token(currToken, lineNumber, lineOffset);
+                lineOffset += strlen(currToken);
+                return token;
+            }
+        } else {
+            // throw appropriate error if input file is closed
         }
     }
-//    cout<<"EOF position "<<line_number+1<<" "<<<<endl;
-
-    file.close();
-}
-
-//void pass1() {
-//    while (true) {
-//        int defcount = readInt(); // return negative to indicate no more tokens if (defcount < 0) exit(2); // eof reached
-//        for (int i=0;i<defcount;i++) {
-//            Symbol sym = readSym();
-//            int val = readInt();
-//            createSymbol(sym,val);
-//        }
-//        int usecount = readInt();
-//        for (int i=0;i<usecount;i++) {
-//            Symbol sym = readSym();
-//            // we don’t do anything here
-//        }
-//        int instcount = readInt();
-//        for (int i=0;i<instcount;i++) {
-//            char addressmode = ReadIEAR();
-//            int  operand = ReadInt();
-//            :  // various checks
-//            :  //  - “ -
-//        }
-//    }
-//}
+};
 
 int main() {
-    string filename = "/Users/akashshrivastva/Documents/OS/Linker/input.txt";
-    tokenize(filename);
+    Tokenizer *tokenizer = new Tokenizer("/Users/akashshrivastva/Documents/OS/Linker/input.txt");
+    while (1) {
+        Token token = tokenizer->getToken();
+        if (token.lineNumber == -1) {
+            break;
+        }
+        cout<<"Token: "<<(token.lineNumber+1)<<":"<<(token.lineOffset+1)<<" : "<<token.token<<endl;
+    }
     return 0;
 }
