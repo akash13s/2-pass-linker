@@ -8,15 +8,21 @@
 using namespace std;
 
 struct Token {
-    char *token;
+    char *text;
     int lineNumber;
     int lineOffset;
 
     Token(char *text, int lineNumber, int lineOffset) {
-        this->token = text;
+        this->text = text;
         this->lineNumber = lineNumber;
         this->lineOffset = lineOffset;
     }
+};
+
+struct Symbol {
+    string text;
+    int lineNumber;
+    int lineOffset;
 };
 
 class Tokenizer {
@@ -28,6 +34,23 @@ private:
     ifstream inputFile;
     string currentLine;
     char *delimiters;
+
+    bool isDigit(char c) {
+        return (c=='1' || c=='2' || c=='3' || c=='4' || c=='5' || c=='6' || c=='7' || c=='8' || c=='9' || c=='0');
+    }
+
+    bool isValidSymbol(string text) {
+        /*
+         * what constitutes a valid symbol?
+         * not an integer/floating point number
+         * what else?
+         */
+        return  true;
+    }
+
+    bool isValidAddressingMode(char c) {
+        return (c=='M' || c=='A' || c=='R' || c=='I' || c=='E');
+    }
 
 public:
     Tokenizer(string filename) {
@@ -86,16 +109,92 @@ public:
             // throw appropriate error if input file is closed
         }
     }
+
+    int readInt() {
+        Token token = getToken();
+        if (token.lineNumber != -1) {
+            char *ptr = token.text;
+            string num;
+            while (*ptr!='\0') {
+                char ch = *ptr;
+                if (!isDigit(ch)) {
+                    // throw error for invalid number
+                    cout<<"Error"<<endl;
+                    return 0;
+                }
+                num.push_back(ch);
+                ptr++;
+            }
+            return stoi(num);
+        }
+        return -1;
+    }
+
+    Symbol readSymbol() {
+        Token token = getToken();
+        Symbol symbol;
+        string text;
+        if (token.lineNumber != -1 && strlen(token.text)>0) {
+            char *ptr = token.text;
+            while (*ptr!='\0') {
+                char ch = *ptr;
+                text.push_back(ch);
+                ptr++;
+            }
+        } else {
+            // throw appropriate error
+        }
+        if (!isValidSymbol(text)) {
+            // throw appropriate vcalidation error
+        }
+        symbol.text = text;
+        symbol.lineNumber = token.lineNumber;
+        symbol.lineOffset = token.lineOffset;
+        return symbol;
+    }
+
+    char readMARIE() {
+        Token token = getToken();
+        char addressingMode;
+        if (token.lineNumber!=-1) {
+            char *ptr = token.text;
+            string text;
+            while (*ptr!='\0') {
+                char ch = *ptr;
+                text.push_back(ch);
+                ptr++;
+            }
+            if (text.length()>1) {
+                // throw error
+                cout<<"Error"<<endl;
+            }
+            if (!isValidAddressingMode(text[0])) {
+                // throw appropriate error
+                cout<<"Error"<<endl;
+            }
+            addressingMode = text[0];
+            return addressingMode;
+        } else {
+            // throw appropriate error
+            return '0';
+        }
+    }
+
 };
 
 int main() {
     Tokenizer *tokenizer = new Tokenizer("/Users/akashshrivastva/Documents/OS/Linker/input.txt");
-    while (1) {
-        Token token = tokenizer->getToken();
-        if (token.lineNumber == -1) {
-            break;
-        }
-        cout<<"Token: "<<(token.lineNumber+1)<<":"<<(token.lineOffset+1)<<" : "<<token.token<<endl;
-    }
+//    while (1) {
+//        Symbol symbol = tokenizer->readSymbol();
+//        if (symbol.lineNumber<0) {
+//            break;
+//        }
+//        cout<<symbol.text<<endl;
+//
+////        cout << "Token: " << (token.lineNumber+1) << ":" << (token.lineOffset+1) << " : " << token.text << endl;
+//    }
+    char c = tokenizer->readMARIE();
+    cout<<c<<endl;
+
     return 0;
 }
