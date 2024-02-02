@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <map>
 
 using namespace std;
 
@@ -35,6 +36,20 @@ private:
     string currentLine;
     char *delimiters;
 
+    // starts with 0
+    int currentModuleNumber;
+    int baseAddrOfCurrentModule;
+
+    // module name, base address, module size
+    map<int, pair<int, int>> moduleTable;
+
+    // symbol, absolute address
+    unordered_map<string, int> symbolTable;
+
+    // memory location, [opcode, absolute address]
+    int currentMemoryLocation;
+    map<int, int> memoryMap;
+
     bool isDigit(char c) {
         return (c=='1' || c=='2' || c=='3' || c=='4' || c=='5' || c=='6' || c=='7' || c=='8' || c=='9' || c=='0');
     }
@@ -52,13 +67,9 @@ private:
         return (c=='M' || c=='A' || c=='R' || c=='I' || c=='E');
     }
 
-public:
-    Tokenizer(string filename) {
-        this->filename = filename;
-        this->inputFile.open(filename);
-        this->delimiters = " \n\t";
-        this->currToken = nullptr;
-        this->lineNumber = -1;
+    void createSymbol(Symbol symbol, int val) {
+        int absAddress = baseAddrOfCurrentModule + val;
+        symbolTable[symbol.text] = absAddress;
     }
 
     Token getToken() {
@@ -91,6 +102,7 @@ public:
                     }
                 }
                 if (inputFile.eof()) {
+                    inputFile.close();
                     char *c = "";
                     Token token(c, -1, -1);
                     return token;
@@ -180,21 +192,147 @@ public:
         }
     }
 
+    void validateInstructionValue(int val) {
+
+    }
+
+    void pass1() {
+        while (1) {
+            // definition list
+            int defCount = readInt();
+            if (defCount < 0) {
+                return ;
+            }
+            for (int i=0; i<defCount; i++) {
+                Symbol symbol = readSymbol();
+                int val = readInt();
+                createSymbol(symbol, val);
+            }
+
+            // use list
+            int useCount = readInt();
+            for (int i=0; i<useCount; i++) {
+                Symbol symbol = readSymbol();
+            }
+
+            // instruction list
+            int instrCount = readInt();
+            moduleTable[currentModuleNumber] = {baseAddrOfCurrentModule, instrCount};
+
+            for (int i=0; i<instrCount; i++) {
+                char addrMode = readMARIE();
+                int val = readInt();
+
+                validateInstructionValue(val);
+            }
+
+            currentModuleNumber++;
+            baseAddrOfCurrentModule += instrCount;
+        }
+    }
+
+    int resolveExternalAddress(int operand, vector<Symbol> &useList) {
+        string token = useList[operand].text;
+        return symbolTable[token];
+    }
+
+    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList) {
+        int opcode = val/1000;
+        int operand = val%1000;
+
+        int memoryRef = opcode*1000;
+
+        switch (addrMode) {
+            case 'M':
+                operand = baseAddrOfCurrentModule;
+                memoryRef += operand;
+                break;
+            case 'A':
+                assert(operand<512);
+                memoryRef += operand;
+                break;
+            case 'R':
+                memoryRef += baseAddrOfCurrentModule + operand;
+                break;
+            case 'I':
+                assert(operand<900);
+                memoryRef += operand;
+                break;
+            case 'E':
+                memoryRef += resolveExternalAddress(operand, useList);
+                break;
+            default: // throw error in case control moves to default
+        }
+
+        memoryMap[currentMemoryLocation] = memoryRef;
+        currentMemoryLocation++;
+    }
+
+    void pass2() {
+        while (1) {
+            // definition list
+            int defCount = readInt();
+            if (defCount < 0) {
+                return ;
+            }
+            for (int i=0; i<defCount; i++) {
+                Symbol symbol = readSymbol();
+                int val = readInt();
+            }
+
+            // use list
+            int useCount = readInt();
+            vector<Symbol> useList;
+
+            for (int i=0; i<useCount; i++) {
+                Symbol symbol = readSymbol();
+                useList.push_back(symbol);
+            }
+
+            // instruction list
+            int instrCount = readInt();
+
+            for (int i=0; i<instrCount; i++) {
+                char addrMode = readMARIE();
+                int val = readInt();
+                resolveMemoryReference(addrMode, val, useList);
+            }
+
+            currentModuleNumber++;
+            baseAddrOfCurrentModule += instrCount;
+        }
+    }
+
+    void resetTokenizerParams() {
+        this->inputFile.close();
+        this->inputFile.open(filename);
+        this->currToken = nullptr;
+        this->lineNumber = -1;
+        this->currentModuleNumber = 0;
+        this->baseAddrOfCurrentModule = 0;
+    }
+
+public:
+    Tokenizer(string filename) {
+        this->filename = filename;
+        this->inputFile.open(filename);
+        this->delimiters = " \n\t";
+        this->currToken = nullptr;
+        this->lineNumber = -1;
+        this->baseAddrOfCurrentModule = 0;
+        this->currentModuleNumber = 0;
+        this->currentMemoryLocation = 0;
+    }
+
+    void parse() {
+        pass1();
+        resetTokenizerParams();
+        pass2();
+    }
 };
 
 int main() {
     Tokenizer *tokenizer = new Tokenizer("/Users/akashshrivastva/Documents/OS/Linker/input.txt");
-//    while (1) {
-//        Symbol symbol = tokenizer->readSymbol();
-//        if (symbol.lineNumber<0) {
-//            break;
-//        }
-//        cout<<symbol.text<<endl;
-//
-////        cout << "Token: " << (token.lineNumber+1) << ":" << (token.lineOffset+1) << " : " << token.text << endl;
-//    }
-    char c = tokenizer->readMARIE();
-    cout<<c<<endl;
-
+    tokenizer->parse();
     return 0;
 }
