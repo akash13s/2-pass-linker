@@ -5,6 +5,7 @@
 #include <vector>
 #include <stdexcept>
 #include <map>
+#include <cctype>
 
 using namespace std;
 
@@ -48,23 +49,32 @@ private:
 
     // memory location, [opcode, absolute address]
     int currentMemoryLocation;
-    map<int, int> memoryMap;
+    map<string, int> memoryMap;
 
     bool isDigit(char c) {
-        return (c=='1' || c=='2' || c=='3' || c=='4' || c=='5' || c=='6' || c=='7' || c=='8' || c=='9' || c=='0');
+        return (c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7' || c == '8' ||
+                c == '9' || c == '0');
     }
 
     bool isValidSymbol(string text) {
-        /*
-         * what constitutes a valid symbol?
-         * not an integer/floating point number
-         * what else?
-         */
-        return  true;
+        int len = text.length();
+        if (len > 0 and len <= 16) {
+            if (isalpha(text[0])) {
+                for (int i = 1; i < len; i++) {
+                    if (!isalnum(text[i])) {
+                        return false;
+                    }
+                }
+                return true;
+            } else {
+                return false;
+            }
+        }
+        return false;
     }
 
     bool isValidAddressingMode(char c) {
-        return (c=='M' || c=='A' || c=='R' || c=='I' || c=='E');
+        return (c == 'M' || c == 'A' || c == 'R' || c == 'I' || c == 'E');
     }
 
     void createSymbol(Symbol symbol, int val) {
@@ -127,11 +137,11 @@ private:
         if (token.lineNumber != -1) {
             char *ptr = token.text;
             string num;
-            while (*ptr!='\0') {
+            while (*ptr != '\0') {
                 char ch = *ptr;
                 if (!isDigit(ch)) {
                     // throw error for invalid number
-                    cout<<"Error"<<endl;
+                    cout << "Error" << endl;
                     return 0;
                 }
                 num.push_back(ch);
@@ -146,9 +156,9 @@ private:
         Token token = getToken();
         Symbol symbol;
         string text;
-        if (token.lineNumber != -1 && strlen(token.text)>0) {
+        if (token.lineNumber != -1 && strlen(token.text) > 0) {
             char *ptr = token.text;
-            while (*ptr!='\0') {
+            while (*ptr != '\0') {
                 char ch = *ptr;
                 text.push_back(ch);
                 ptr++;
@@ -157,7 +167,7 @@ private:
             // throw appropriate error
         }
         if (!isValidSymbol(text)) {
-            // throw appropriate vcalidation error
+            // throw appropriate validation error
         }
         symbol.text = text;
         symbol.lineNumber = token.lineNumber;
@@ -168,21 +178,21 @@ private:
     char readMARIE() {
         Token token = getToken();
         char addressingMode;
-        if (token.lineNumber!=-1) {
+        if (token.lineNumber != -1) {
             char *ptr = token.text;
             string text;
-            while (*ptr!='\0') {
+            while (*ptr != '\0') {
                 char ch = *ptr;
                 text.push_back(ch);
                 ptr++;
             }
-            if (text.length()>1) {
+            if (text.length() > 1) {
                 // throw error
-                cout<<"Error"<<endl;
+                cout << "Error" << endl;
             }
             if (!isValidAddressingMode(text[0])) {
                 // throw appropriate error
-                cout<<"Error"<<endl;
+                cout << "Error" << endl;
             }
             addressingMode = text[0];
             return addressingMode;
@@ -192,8 +202,11 @@ private:
         }
     }
 
-    void validateInstructionValue(int val) {
+    bool validateInstruction(int val) {
+        int opcode = val / 1000;
+        int operand = val % 1000;
 
+        return opcode < 10 && operand < 512;
     }
 
     void pass1() {
@@ -201,9 +214,9 @@ private:
             // definition list
             int defCount = readInt();
             if (defCount < 0) {
-                return ;
+                return;
             }
-            for (int i=0; i<defCount; i++) {
+            for (int i = 0; i < defCount; i++) {
                 Symbol symbol = readSymbol();
                 int val = readInt();
                 createSymbol(symbol, val);
@@ -211,7 +224,7 @@ private:
 
             // use list
             int useCount = readInt();
-            for (int i=0; i<useCount; i++) {
+            for (int i = 0; i < useCount; i++) {
                 Symbol symbol = readSymbol();
             }
 
@@ -219,11 +232,13 @@ private:
             int instrCount = readInt();
             moduleTable[currentModuleNumber] = {baseAddrOfCurrentModule, instrCount};
 
-            for (int i=0; i<instrCount; i++) {
+            for (int i = 0; i < instrCount; i++) {
                 char addrMode = readMARIE();
                 int val = readInt();
 
-                validateInstructionValue(val);
+                if (!validateInstruction(val)) {
+                    // throw appropriate error
+                }
             }
 
             currentModuleNumber++;
@@ -237,10 +252,10 @@ private:
     }
 
     void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList) {
-        int opcode = val/1000;
-        int operand = val%1000;
+        int opcode = val / 1000;
+        int operand = val % 1000;
 
-        int memoryRef = opcode*1000;
+        int memoryRef = opcode * 1000;
 
         switch (addrMode) {
             case 'M':
@@ -248,23 +263,31 @@ private:
                 memoryRef += operand;
                 break;
             case 'A':
-                assert(operand<512);
+                assert(operand < 512);
                 memoryRef += operand;
                 break;
             case 'R':
                 memoryRef += baseAddrOfCurrentModule + operand;
                 break;
             case 'I':
-                assert(operand<900);
+                assert(operand < 900);
                 memoryRef += operand;
                 break;
             case 'E':
                 memoryRef += resolveExternalAddress(operand, useList);
                 break;
             default: // throw error in case control moves to default
+                break;
         }
 
-        memoryMap[currentMemoryLocation] = memoryRef;
+        string location = to_string(currentMemoryLocation);
+        int zeros = 3-location.length();
+
+        for (int i=0; i<zeros; i++) {
+            location = '0' + location;
+        }
+
+        memoryMap[location] = memoryRef;
         currentMemoryLocation++;
     }
 
@@ -273,9 +296,9 @@ private:
             // definition list
             int defCount = readInt();
             if (defCount < 0) {
-                return ;
+                return;
             }
-            for (int i=0; i<defCount; i++) {
+            for (int i = 0; i < defCount; i++) {
                 Symbol symbol = readSymbol();
                 int val = readInt();
             }
@@ -284,7 +307,7 @@ private:
             int useCount = readInt();
             vector<Symbol> useList;
 
-            for (int i=0; i<useCount; i++) {
+            for (int i = 0; i < useCount; i++) {
                 Symbol symbol = readSymbol();
                 useList.push_back(symbol);
             }
@@ -292,7 +315,7 @@ private:
             // instruction list
             int instrCount = readInt();
 
-            for (int i=0; i<instrCount; i++) {
+            for (int i = 0; i < instrCount; i++) {
                 char addrMode = readMARIE();
                 int val = readInt();
                 resolveMemoryReference(addrMode, val, useList);
@@ -312,6 +335,18 @@ private:
         this->baseAddrOfCurrentModule = 0;
     }
 
+    void __parseerror(int errcode) {
+        static char *errstr[] = {
+                "NUM_EXPECTED", // Number expect, anything >= 2^30 is not a number either
+                "SYM_EXPECTED", // Symbol Expected
+                "MARIE_EXPECTED", // Addressing Expected which is M/A/R/I/E
+                "SYM_TOO_LONG", // Symbol Name is too long
+                "TOO_MANY_DEF_IN_MODULE", //>16
+                "TOO_MANY_USE_IN_MODULE", // > 16
+                "TOO_MANY_INSTR", // total num_instr exceeds memory size (512)
+        };
+    }
+
 public:
     Tokenizer(string filename) {
         this->filename = filename;
@@ -324,10 +359,27 @@ public:
         this->currentMemoryLocation = 0;
     }
 
+    void printSymbolTable() {
+        cout<<"Symbol Table"<<endl;
+        for (auto itr = symbolTable.begin(); itr!=symbolTable.end(); itr++) {
+            cout<<itr->first<<"="<<itr->second<<endl;
+        }
+        cout<<endl;
+    }
+
+    void printMemoryMap() {
+        cout<<"Memory Map"<<endl;
+        for (auto itr = memoryMap.begin(); itr!=memoryMap.end(); itr++) {
+            cout<<itr->first<<": "<<itr->second<<endl;
+        }
+    }
+
     void parse() {
         pass1();
+        printSymbolTable();
         resetTokenizerParams();
         pass2();
+        printMemoryMap();
     }
 };
 
