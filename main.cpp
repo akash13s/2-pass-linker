@@ -78,8 +78,14 @@ private:
     }
 
     void createSymbol(Symbol symbol, int val) {
+        if (symbolTable.find(symbol.text) != symbolTable.end()) {
+            cout << symbol.text << "=" << symbolTable[symbol.text] << " ";
+            cout << "Error: This variable is multiple times defined; first value used" << endl;
+            return;
+        }
         int absAddress = baseAddrOfCurrentModule + val;
         symbolTable[symbol.text] = absAddress;
+        cout << symbol.text << "=" << symbolTable[symbol.text] << endl;
     }
 
     Token getToken() {
@@ -210,6 +216,7 @@ private:
     }
 
     void pass1() {
+        cout << "Symbol Table" << endl;
         while (1) {
             // definition list
             int defCount = readInt();
@@ -236,9 +243,9 @@ private:
                 char addrMode = readMARIE();
                 int val = readInt();
 
-                if (!validateInstruction(val)) {
-                    // throw appropriate error
-                }
+//                if (!validateInstruction(val)) {
+//                    // throw appropriate error
+//                }
             }
 
             currentModuleNumber++;
@@ -246,52 +253,125 @@ private:
         }
     }
 
-    int resolveExternalAddress(int operand, vector<Symbol> &useList) {
+    void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location) {
+        if (operand >= useList.size() || operand < 0) {
+            string t = useList[0].text;
+            memoryRef += symbolTable[t];
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << " ";
+            cout << "Error: External operand exceeds length of uselist; treated as relative=0" << endl;
+            return ;
+        }
         string token = useList[operand].text;
-        return symbolTable[token];
+        if (symbolTable.find(token) != symbolTable.end()) {
+            memoryRef += symbolTable[token];
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << endl;
+        } else {
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << " ";
+            cout << "Error: " << token << " is not defined; zero used" << endl;
+        }
     }
 
-    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList) {
+    void resolveAbsoluteAddress(int operand, int memoryRef, string location) {
+        if (operand >= 512) {
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << " ";
+            cout << "Error: Absolute address exceeds machine size; zero used" << endl;
+        } else {
+            memoryRef += operand;
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << endl;
+        }
+    }
+
+    void resolveImmediateAddress(int operand, int memoryRef, string location) {
+        if (operand >= 900) {
+            memoryRef += 999;
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << " ";
+            cout << "Error: Illegal immediate operand; treated as 999" << endl;
+        } else {
+            memoryRef += operand;
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << endl;
+        }
+    }
+
+    void resolveRelativeAddress(int operand, int instrCount, int memoryRef, string location) {
+        if (operand >= instrCount) {
+            memoryRef += baseAddrOfCurrentModule;
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << " ";
+            cout << "Error: Relative address exceeds module size; relative zero used" << endl;
+        } else {
+            memoryRef += baseAddrOfCurrentModule + operand;
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << endl;
+        }
+    }
+
+    void resolveModuleAddress(int operand, int memoryRef, string location) {
+        if (moduleTable.find(operand) != moduleTable.end()) {
+            memoryRef += moduleTable[operand].first;
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << endl;
+        } else {
+            memoryMap[location] = memoryRef;
+            cout << memoryMap[location] << " ";
+            cout << "Error: Illegal module operand ; treated as module=0" << endl;
+        }
+    }
+
+    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList, int instrCount) {
         int opcode = val / 1000;
         int operand = val % 1000;
 
         int memoryRef = opcode * 1000;
 
+        string location = to_string(currentMemoryLocation);
+        int zeros = 3 - location.length();
+
+        for (int i = 0; i < zeros; i++) {
+            location = '0' + location;
+        }
+
+        cout << location << ": ";
+
+        if (opcode >= 10) {
+            memoryMap[location] = 9999;
+            cout << memoryMap[location] << " ";
+            cout << "Error: Illegal opcode; treated as 9999" << endl;
+            return;
+        }
+
         switch (addrMode) {
             case 'M':
-                operand = baseAddrOfCurrentModule;
-                memoryRef += operand;
+                resolveModuleAddress(operand, memoryRef, location);
                 break;
             case 'A':
-                assert(operand < 512);
-                memoryRef += operand;
+                resolveAbsoluteAddress(operand, memoryRef, location);
                 break;
             case 'R':
-                memoryRef += baseAddrOfCurrentModule + operand;
+                resolveRelativeAddress(operand, instrCount, memoryRef, location);
                 break;
             case 'I':
-                assert(operand < 900);
-                memoryRef += operand;
+                resolveImmediateAddress(operand, memoryRef, location);
                 break;
             case 'E':
-                memoryRef += resolveExternalAddress(operand, useList);
+                resolveExternalAddress(operand, useList, memoryRef, location);
                 break;
             default: // throw error in case control moves to default
                 break;
         }
 
-        string location = to_string(currentMemoryLocation);
-        int zeros = 3-location.length();
-
-        for (int i=0; i<zeros; i++) {
-            location = '0' + location;
-        }
-
-        memoryMap[location] = memoryRef;
         currentMemoryLocation++;
     }
 
     void pass2() {
+        cout << endl;
+        cout << "Memory Map" << endl;
         while (1) {
             // definition list
             int defCount = readInt();
@@ -318,7 +398,7 @@ private:
             for (int i = 0; i < instrCount; i++) {
                 char addrMode = readMARIE();
                 int val = readInt();
-                resolveMemoryReference(addrMode, val, useList);
+                resolveMemoryReference(addrMode, val, useList, instrCount);
             }
 
             currentModuleNumber++;
@@ -335,8 +415,8 @@ private:
         this->baseAddrOfCurrentModule = 0;
     }
 
-    void __parseerror(int errcode) {
-        static char *errstr[] = {
+    void __parseError(int errorCode, int lineNum, int lineOffset) {
+        static char *errStr[] = {
                 "NUM_EXPECTED", // Number expect, anything >= 2^30 is not a number either
                 "SYM_EXPECTED", // Symbol Expected
                 "MARIE_EXPECTED", // Addressing Expected which is M/A/R/I/E
@@ -345,6 +425,7 @@ private:
                 "TOO_MANY_USE_IN_MODULE", // > 16
                 "TOO_MANY_INSTR", // total num_instr exceeds memory size (512)
         };
+        printf("Parse Error line %d offset %d: %s\n", lineNum, lineOffset, errStr[errorCode]);
     }
 
 public:
@@ -359,27 +440,10 @@ public:
         this->currentMemoryLocation = 0;
     }
 
-    void printSymbolTable() {
-        cout<<"Symbol Table"<<endl;
-        for (auto itr = symbolTable.begin(); itr!=symbolTable.end(); itr++) {
-            cout<<itr->first<<"="<<itr->second<<endl;
-        }
-        cout<<endl;
-    }
-
-    void printMemoryMap() {
-        cout<<"Memory Map"<<endl;
-        for (auto itr = memoryMap.begin(); itr!=memoryMap.end(); itr++) {
-            cout<<itr->first<<": "<<itr->second<<endl;
-        }
-    }
-
     void parse() {
         pass1();
-        printSymbolTable();
         resetTokenizerParams();
         pass2();
-        printMemoryMap();
     }
 };
 
