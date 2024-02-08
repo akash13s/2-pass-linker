@@ -27,6 +27,36 @@ struct Symbol {
     int lineOffset;
 };
 
+struct ModuleTableEntry {
+    int moduleNum;
+    int baseAddress;
+    int size;
+
+    ModuleTableEntry() {}
+
+    ModuleTableEntry(int moduleNum, int baseAddress, int size) {
+        this->moduleNum = moduleNum;
+        this->baseAddress = baseAddress;
+        this->size = size;
+    }
+};
+
+struct SymbolTableEntry {
+    string text;
+    int absAddress;
+    bool used;
+    string errorMsg;
+
+    SymbolTableEntry(string text, int absAddress, bool used, string errorMsg) {
+        this->text = text;
+        this->absAddress = absAddress;
+        this->used = used;
+        this->errorMsg = errorMsg;
+    }
+
+    SymbolTableEntry() {}
+};
+
 class Tokenizer {
 private:
     char *currToken;
@@ -41,11 +71,9 @@ private:
     int currentModuleNumber;
     int baseAddrOfCurrentModule;
 
-    // module name, base address, module size
-    map<int, pair<int, int>> moduleTable;
+    vector<ModuleTableEntry> moduleTable;
 
-    // symbol, absolute address
-    unordered_map<string, int> symbolTable;
+    vector<SymbolTableEntry> symbolTable;
 
     // memory location, [opcode, absolute address]
     int currentMemoryLocation;
@@ -78,14 +106,19 @@ private:
     }
 
     void createSymbol(Symbol symbol, int val) {
-        if (symbolTable.find(symbol.text) != symbolTable.end()) {
-            cout << symbol.text << "=" << symbolTable[symbol.text] << " ";
-            cout << "Error: This variable is multiple times defined; first value used" << endl;
-            return;
+        bool found = false;
+        for (SymbolTableEntry entry: symbolTable) {
+            if (entry.text == symbol.text) {
+                found = true;
+                entry.errorMsg = "Error: This variable is multiple times defined; first value used";
+                break;
+            }
         }
-        int absAddress = baseAddrOfCurrentModule + val;
-        symbolTable[symbol.text] = absAddress;
-        cout << symbol.text << "=" << symbolTable[symbol.text] << endl;
+        if (!found) {
+            int absAddress = baseAddrOfCurrentModule + val;
+            SymbolTableEntry entry(symbol.text, absAddress, false, "");
+            symbolTable.push_back(entry);
+        }
     }
 
     Token getToken() {
@@ -215,8 +248,18 @@ private:
         return opcode < 10 && operand < 512;
     }
 
+    void printSymbolTable() {
+        cout << "Symbol table" << endl;
+        for (SymbolTableEntry entry: symbolTable) {
+            cout << entry.text << "=" << entry.absAddress;
+            if (!entry.errorMsg.empty()) {
+                cout << " " << entry.errorMsg;
+            }
+            cout << endl;
+        }
+    }
+
     void pass1() {
-        cout << "Symbol Table" << endl;
         while (1) {
             // definition list
             int defCount = readInt();
@@ -237,7 +280,9 @@ private:
 
             // instruction list
             int instrCount = readInt();
-            moduleTable[currentModuleNumber] = {baseAddrOfCurrentModule, instrCount};
+
+            ModuleTableEntry moduleTableEntry(currentModuleNumber, baseAddrOfCurrentModule, instrCount);
+            moduleTable.push_back(moduleTableEntry);
 
             for (int i = 0; i < instrCount; i++) {
                 char addrMode = readMARIE();
@@ -253,21 +298,39 @@ private:
         }
     }
 
+    int getBaseAddressOf(string symbol) {
+        for (SymbolTableEntry entry: symbolTable) {
+            if (entry.text == symbol) {
+                return entry.absAddress;
+            }
+        }
+        return 0;
+    }
+
     void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location) {
         if (operand >= useList.size() || operand < 0) {
             string t = useList[0].text;
-            memoryRef += symbolTable[t];
+            memoryRef += getBaseAddressOf(t);
             memoryMap[location] = memoryRef;
             cout << memoryMap[location] << " ";
             cout << "Error: External operand exceeds length of uselist; treated as relative=0" << endl;
-            return ;
+            return;
         }
         string token = useList[operand].text;
-        if (symbolTable.find(token) != symbolTable.end()) {
-            memoryRef += symbolTable[token];
-            memoryMap[location] = memoryRef;
-            cout << memoryMap[location] << endl;
-        } else {
+
+        bool found = false;
+        SymbolTableEntry tableEntry;
+        for (SymbolTableEntry entry: symbolTable) {
+            if (entry.text == token) {
+                found = true;
+                memoryRef += entry.absAddress;
+                memoryMap[location] = memoryRef;
+                cout << memoryMap[location] << endl;
+                break;
+            }
+        }
+
+        if (!found) {
             memoryMap[location] = memoryRef;
             cout << memoryMap[location] << " ";
             cout << "Error: " << token << " is not defined; zero used" << endl;
@@ -313,11 +376,18 @@ private:
     }
 
     void resolveModuleAddress(int operand, int memoryRef, string location) {
-        if (moduleTable.find(operand) != moduleTable.end()) {
-            memoryRef += moduleTable[operand].first;
-            memoryMap[location] = memoryRef;
-            cout << memoryMap[location] << endl;
-        } else {
+        bool found = false;
+        for (ModuleTableEntry moduleTableEntry: moduleTable) {
+            if (moduleTableEntry.moduleNum == operand) {
+                found = true;
+                memoryRef += moduleTableEntry.baseAddress;
+                memoryMap[location] = memoryRef;
+                cout << memoryMap[location] << endl;
+                break;
+            }
+        }
+
+        if (!found) {
             memoryMap[location] = memoryRef;
             cout << memoryMap[location] << " ";
             cout << "Error: Illegal module operand ; treated as module=0" << endl;
@@ -442,6 +512,7 @@ public:
 
     void parse() {
         pass1();
+        printSymbolTable();
         resetTokenizerParams();
         pass2();
     }
