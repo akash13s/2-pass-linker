@@ -23,6 +23,8 @@ struct Token {
 
 struct Symbol {
     string text;
+    int moduleNum;
+    int relativeAddress;
     int lineNumber;
     int lineOffset;
 };
@@ -43,12 +45,14 @@ struct ModuleTableEntry {
 
 struct SymbolTableEntry {
     string text;
+    int moduleNum;
     int absAddress;
     bool used;
     string errorMsg;
 
-    SymbolTableEntry(string text, int absAddress, bool used, string errorMsg) {
+    SymbolTableEntry(string text, int moduleNum, int absAddress, bool used, string errorMsg) {
         this->text = text;
+        this->moduleNum = moduleNum;
         this->absAddress = absAddress;
         this->used = used;
         this->errorMsg = errorMsg;
@@ -79,8 +83,8 @@ private:
     int currentMemoryLocation;
     map<string, int> memoryMap;
 
-    // to track unused symbols across module
-    vector<pair<string, int>> unusedSymbolsList;
+    // unused symbols in module
+    vector<string> unusedSymbols;
 
     bool isDigit(char c) {
         return (c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7' || c == '8' ||
@@ -108,8 +112,10 @@ private:
         return (c == 'M' || c == 'A' || c == 'R' || c == 'I' || c == 'E');
     }
 
-    void createSymbol(Symbol symbol, int val, vector<pair<string, int>> &defList) {
-        defList.push_back({symbol.text, val});
+    void createSymbol(Symbol symbol, int val, vector<Symbol> &defList) {
+        symbol.moduleNum = currentModuleNumber;
+        symbol.relativeAddress = val;
+        defList.push_back(symbol);
     }
 
     Token getToken() {
@@ -258,7 +264,7 @@ private:
                 return;
             }
 
-            vector<pair<string, int>> defList;
+            vector<Symbol> defList;
 
             for (int i = 0; i < defCount; i++) {
                 Symbol symbol = readSymbol();
@@ -288,15 +294,15 @@ private:
             }
 
             for (auto itr = defList.begin(); itr != defList.end(); itr++) {
-                if (!isSymbolAlreadyDefined(itr->first, currentModuleNumber, instrCount)) {
-                    int offset = itr->second;
+                if (!isSymbolAlreadyDefined(itr->text, currentModuleNumber, instrCount)) {
+                    int offset = itr->relativeAddress;
                     if (offset >= instrCount) {
                         offset = 0;
-                        cout << "Warning: Module " << currentModuleNumber << ": " << itr->first << "=" << itr->second
+                        cout << "Warning: Module " << currentModuleNumber << ": " << itr->text << "=" << itr->relativeAddress
                              << " valid=[0.." << (instrCount - 1) << "] assume zero relative" << endl;
                     }
                     int absAddress = baseAddrOfCurrentModule + offset;
-                    SymbolTableEntry entry(itr->first, absAddress, false, "");
+                    SymbolTableEntry entry(itr->text, currentModuleNumber, absAddress, false, "");
                     symbolTable.push_back(entry);
                 }
             }
@@ -329,17 +335,10 @@ private:
         return 0;
     }
 
-    void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location,
-                                vector<string> &unusedSymbols, vector<int> &useListVis) {
+    void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location, vector<int> &useListVis) {
         if (operand >= useList.size() || operand < 0) {
-            string t = useList[0].text;
-            memoryRef += getBaseAddressOf(t);
-
-            // delete from unusedSymbols
-            auto it = std::find(unusedSymbols.begin(), unusedSymbols.end(), t);
-            if (it != unusedSymbols.end()) {
-                unusedSymbols.erase(it);
-            }
+//            string t = useList[0].text;
+//            memoryRef += getBaseAddressOf(t);
 
             memoryMap[location] = memoryRef;
             cout << memoryMap[location] << " ";
@@ -433,8 +432,7 @@ private:
         }
     }
 
-    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList, int instrCount,
-                                vector<string> &unusedSymbols, vector<int> &useListVis) {
+    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList, int instrCount, vector<int> &useListVis) {
         int opcode = val / 1000;
         int operand = val % 1000;
 
@@ -470,7 +468,7 @@ private:
                 resolveImmediateAddress(operand, memoryRef, location);
                 break;
             case 'E':
-                resolveExternalAddress(operand, useList, memoryRef, location, unusedSymbols, useListVis);
+                resolveExternalAddress(operand, useList, memoryRef, location, useListVis);
                 break;
             default: // throw error in case control moves to default
                 break;
@@ -493,6 +491,7 @@ private:
     void pass2() {
         cout << endl;
         cout << "Memory Map" << endl;
+
         while (1) {
             // definition list
             int defCount = readInt();
@@ -500,13 +499,9 @@ private:
                 return;
             }
 
-            // unused symbols in module
-            vector<string> unusedSymbols;
-
             for (int i = 0; i < defCount; i++) {
                 Symbol symbol = readSymbol();
                 int val = readInt();
-                unusedSymbols.push_back(symbol.text);
             }
 
             // use list
@@ -527,7 +522,7 @@ private:
             for (int i = 0; i < instrCount; i++) {
                 char addrMode = readMARIE();
                 int val = readInt();
-                resolveMemoryReference(addrMode, val, useList, instrCount, unusedSymbols, useListVis);
+                resolveMemoryReference(addrMode, val, useList, instrCount, useListVis);
             }
 
             for (int i = 0; i < useListVis.size(); i++) {
@@ -537,10 +532,6 @@ private:
                 }
             }
 
-            for (string s: unusedSymbols) {
-                unusedSymbolsList.push_back({s, currentModuleNumber});
-            }
-
             currentModuleNumber++;
             baseAddrOfCurrentModule += instrCount;
         }
@@ -548,8 +539,10 @@ private:
 
     void printUnusedSymbols() {
         cout << endl;
-        for (auto itr = unusedSymbolsList.begin(); itr != unusedSymbolsList.end(); itr++) {
-            cout << "Warning: Module " << itr->second << ": " << itr->first << " was defined but never used" << endl;
+        for (auto itr = symbolTable.begin(); itr != symbolTable.end(); itr++) {
+            if (!itr->used) {
+                cout << "Warning: Module " << itr->moduleNum << ": " << itr->text << " was defined but never used" << endl;
+            }
         }
     }
 
