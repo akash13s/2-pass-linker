@@ -79,6 +79,9 @@ private:
     int currentMemoryLocation;
     map<string, int> memoryMap;
 
+    // to track unused symbols across module
+    vector<pair<string, int>> unusedSymbolsList;
+
     bool isDigit(char c) {
         return (c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7' || c == '8' ||
                 c == '9' || c == '0');
@@ -105,20 +108,8 @@ private:
         return (c == 'M' || c == 'A' || c == 'R' || c == 'I' || c == 'E');
     }
 
-    void createSymbol(Symbol symbol, int val) {
-        bool found = false;
-        for (SymbolTableEntry entry: symbolTable) {
-            if (entry.text == symbol.text) {
-                found = true;
-                entry.errorMsg = "Error: This variable is multiple times defined; first value used";
-                break;
-            }
-        }
-        if (!found) {
-            int absAddress = baseAddrOfCurrentModule + val;
-            SymbolTableEntry entry(symbol.text, absAddress, false, "");
-            symbolTable.push_back(entry);
-        }
+    void createSymbol(Symbol symbol, int val, vector<pair<string, int>> &defList) {
+        defList.push_back({symbol.text, val});
     }
 
     Token getToken() {
@@ -249,7 +240,7 @@ private:
     }
 
     void printSymbolTable() {
-        cout << "Symbol table" << endl;
+        cout << "Symbol Table" << endl;
         for (SymbolTableEntry entry: symbolTable) {
             cout << entry.text << "=" << entry.absAddress;
             if (!entry.errorMsg.empty()) {
@@ -266,10 +257,13 @@ private:
             if (defCount < 0) {
                 return;
             }
+
+            vector<pair<string, int>> defList;
+
             for (int i = 0; i < defCount; i++) {
                 Symbol symbol = readSymbol();
                 int val = readInt();
-                createSymbol(symbol, val);
+                createSymbol(symbol, val, defList);
             }
 
             // use list
@@ -293,37 +287,82 @@ private:
 //                }
             }
 
+            for (auto itr = defList.begin(); itr != defList.end(); itr++) {
+                if (!isSymbolAlreadyDefined(itr->first, currentModuleNumber, instrCount)) {
+                    int offset = itr->second;
+                    if (offset >= instrCount) {
+                        offset = 0;
+                        cout << "Warning: Module " << currentModuleNumber << ": " << itr->first << "=" << itr->second
+                             << " valid=[0.." << (instrCount - 1) << "] assume zero relative" << endl;
+                    }
+                    int absAddress = baseAddrOfCurrentModule + offset;
+                    SymbolTableEntry entry(itr->first, absAddress, false, "");
+                    symbolTable.push_back(entry);
+                }
+            }
+
             currentModuleNumber++;
             baseAddrOfCurrentModule += instrCount;
         }
     }
 
-    int getBaseAddressOf(string symbol) {
-        for (SymbolTableEntry entry: symbolTable) {
+    bool isSymbolAlreadyDefined(string symbol, int moduleNumber, int moduleSize) {
+        bool isAlreadyDefined = false;
+        for (SymbolTableEntry &entry: symbolTable) {
             if (entry.text == symbol) {
+                isAlreadyDefined = true;
+                entry.errorMsg = "Error: This variable is multiple times defined; first value used";
+                cout << "Warning: Module " << moduleNumber << ": " << symbol << " redefinition ignored" << endl;
+                break;
+            }
+        }
+        return isAlreadyDefined;
+    }
+
+    int getBaseAddressOf(string symbol) {
+        for (SymbolTableEntry &entry: symbolTable) {
+            if (entry.text == symbol) {
+                entry.used = true;
                 return entry.absAddress;
             }
         }
         return 0;
     }
 
-    void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location) {
+    void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location,
+                                vector<string> &unusedSymbols, vector<int> &useListVis) {
         if (operand >= useList.size() || operand < 0) {
             string t = useList[0].text;
             memoryRef += getBaseAddressOf(t);
+
+            // delete from unusedSymbols
+            auto it = std::find(unusedSymbols.begin(), unusedSymbols.end(), t);
+            if (it != unusedSymbols.end()) {
+                unusedSymbols.erase(it);
+            }
+
             memoryMap[location] = memoryRef;
             cout << memoryMap[location] << " ";
             cout << "Error: External operand exceeds length of uselist; treated as relative=0" << endl;
             return;
         }
         string token = useList[operand].text;
+        useListVis[operand] = 1;
 
         bool found = false;
         SymbolTableEntry tableEntry;
-        for (SymbolTableEntry entry: symbolTable) {
+        for (SymbolTableEntry &entry: symbolTable) {
             if (entry.text == token) {
                 found = true;
                 memoryRef += entry.absAddress;
+                entry.used = true;
+
+                // delete from unusedSymbols
+                auto it = std::find(unusedSymbols.begin(), unusedSymbols.end(), token);
+                if (it != unusedSymbols.end()) {
+                    unusedSymbols.erase(it);
+                }
+
                 memoryMap[location] = memoryRef;
                 cout << memoryMap[location] << endl;
                 break;
@@ -394,7 +433,8 @@ private:
         }
     }
 
-    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList, int instrCount) {
+    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList, int instrCount,
+                                vector<string> &unusedSymbols, vector<int> &useListVis) {
         int opcode = val / 1000;
         int operand = val % 1000;
 
@@ -430,13 +470,24 @@ private:
                 resolveImmediateAddress(operand, memoryRef, location);
                 break;
             case 'E':
-                resolveExternalAddress(operand, useList, memoryRef, location);
+                resolveExternalAddress(operand, useList, memoryRef, location, unusedSymbols, useListVis);
                 break;
             default: // throw error in case control moves to default
                 break;
         }
 
         currentMemoryLocation++;
+    }
+
+    int getIndexOf(string str, vector<Symbol> v) {
+        int index = 0;
+        for (int i = 0; i < v.size(); i++) {
+            if (v[i].text == str) {
+                index = i;
+                break;
+            }
+        }
+        return index;
     }
 
     void pass2() {
@@ -448,14 +499,22 @@ private:
             if (defCount < 0) {
                 return;
             }
+
+            // unused symbols in module
+            vector<string> unusedSymbols;
+
             for (int i = 0; i < defCount; i++) {
                 Symbol symbol = readSymbol();
                 int val = readInt();
+                unusedSymbols.push_back(symbol.text);
             }
 
             // use list
             int useCount = readInt();
             vector<Symbol> useList;
+
+            // to keep track of unused symbols from use list
+            vector<int> useListVis(useCount, -1);
 
             for (int i = 0; i < useCount; i++) {
                 Symbol symbol = readSymbol();
@@ -468,11 +527,29 @@ private:
             for (int i = 0; i < instrCount; i++) {
                 char addrMode = readMARIE();
                 int val = readInt();
-                resolveMemoryReference(addrMode, val, useList, instrCount);
+                resolveMemoryReference(addrMode, val, useList, instrCount, unusedSymbols, useListVis);
+            }
+
+            for (int i = 0; i < useListVis.size(); i++) {
+                if (useListVis[i] == -1) {
+                    printf("Warning: Module %d: uselist[%d]=%s was not used\n", currentModuleNumber, i,
+                           useList[i].text.c_str());
+                }
+            }
+
+            for (string s: unusedSymbols) {
+                unusedSymbolsList.push_back({s, currentModuleNumber});
             }
 
             currentModuleNumber++;
             baseAddrOfCurrentModule += instrCount;
+        }
+    }
+
+    void printUnusedSymbols() {
+        cout << endl;
+        for (auto itr = unusedSymbolsList.begin(); itr != unusedSymbolsList.end(); itr++) {
+            cout << "Warning: Module " << itr->second << ": " << itr->first << " was defined but never used" << endl;
         }
     }
 
@@ -515,6 +592,7 @@ public:
         printSymbolTable();
         resetTokenizerParams();
         pass2();
+        printUnusedSymbols();
     }
 };
 
