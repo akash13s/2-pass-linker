@@ -66,6 +66,11 @@ private:
     char *currToken;
     int lineNumber;
     int lineOffset;
+
+    int prevValidTokenLineNum;
+    int prevValidTokenStartLineOffset;
+    int prevValidTokenEndLineOffset;
+
     string filename;
     ifstream inputFile;
     string currentLine;
@@ -177,12 +182,15 @@ private:
                 char ch = *ptr;
                 if (!isDigit(ch)) {
                     // throw error for invalid number
-                    cout << "Error" << endl;
-                    return 0;
+                    __parseError(0, token.lineNumber + 1, token.lineOffset + 1);
+                    exit(0);
                 }
                 num.push_back(ch);
                 ptr++;
             }
+            prevValidTokenLineNum = lineNumber;
+            prevValidTokenStartLineOffset = token.lineOffset;
+            prevValidTokenEndLineOffset = lineOffset;
             return stoi(num);
         }
         return -1;
@@ -201,13 +209,22 @@ private:
             }
         } else {
             // throw appropriate error
+            __parseError(1, lineNumber, lineOffset + 1);
+            exit(0);
         }
         if (!isValidSymbol(text)) {
             // throw appropriate validation error
+            __parseError(1, token.lineNumber + 1, token.lineOffset + 1);
+            exit(0);
         }
         symbol.text = text;
         symbol.lineNumber = token.lineNumber;
         symbol.lineOffset = token.lineOffset;
+
+        prevValidTokenLineNum = lineNumber;
+        prevValidTokenStartLineOffset = token.lineOffset;
+        prevValidTokenEndLineOffset = lineOffset;
+
         return symbol;
     }
 
@@ -230,11 +247,16 @@ private:
                 // throw appropriate error
                 cout << "Error" << endl;
             }
+            prevValidTokenLineNum = lineNumber;
+            prevValidTokenStartLineOffset = token.lineOffset;
+            prevValidTokenEndLineOffset = lineOffset;
+
             addressingMode = text[0];
             return addressingMode;
         } else {
             // throw appropriate error
-            return '0';
+            __parseError(2, prevValidTokenLineNum + 1, prevValidTokenEndLineOffset + 1);
+            exit(0);
         }
     }
 
@@ -264,6 +286,11 @@ private:
                 return;
             }
 
+            if (defCount > 16) {
+                __parseError(4, prevValidTokenLineNum + 1, prevValidTokenStartLineOffset + 1);
+                exit(0);
+            }
+
             vector<Symbol> defList;
 
             for (int i = 0; i < defCount; i++) {
@@ -274,12 +301,26 @@ private:
 
             // use list
             int useCount = readInt();
+
+            if (useCount > 16) {
+                __parseError(5, prevValidTokenLineNum + 1, prevValidTokenStartLineOffset + 1);
+                exit(0);
+            }
+
             for (int i = 0; i < useCount; i++) {
                 Symbol symbol = readSymbol();
             }
 
             // instruction list
             int instrCount = readInt();
+
+//            int prevLineNum = this->lineNumber;
+//            int prevLineOffset = this->lineOffset;
+
+            if (baseAddrOfCurrentModule + instrCount >= 512) {
+                __parseError(6, prevValidTokenLineNum + 1, prevValidTokenStartLineOffset + 1);
+                exit(0);
+            }
 
             ModuleTableEntry moduleTableEntry(currentModuleNumber, baseAddrOfCurrentModule, instrCount);
             moduleTable.push_back(moduleTableEntry);
@@ -298,7 +339,8 @@ private:
                     int offset = itr->relativeAddress;
                     if (offset >= instrCount) {
                         offset = 0;
-                        cout << "Warning: Module " << currentModuleNumber << ": " << itr->text << "=" << itr->relativeAddress
+                        cout << "Warning: Module " << currentModuleNumber << ": " << itr->text << "="
+                             << itr->relativeAddress
                              << " valid=[0.." << (instrCount - 1) << "] assume zero relative" << endl;
                     }
                     int absAddress = baseAddrOfCurrentModule + offset;
@@ -335,7 +377,8 @@ private:
         return 0;
     }
 
-    void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location, vector<int> &useListVis) {
+    void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location,
+                                vector<int> &useListVis) {
         if (operand >= useList.size() || operand < 0) {
 //            string t = useList[0].text;
 //            memoryRef += getBaseAddressOf(t);
@@ -432,7 +475,8 @@ private:
         }
     }
 
-    void resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList, int instrCount, vector<int> &useListVis) {
+    void
+    resolveMemoryReference(char addrMode, int val, vector<Symbol> &useList, int instrCount, vector<int> &useListVis) {
         int opcode = val / 1000;
         int operand = val % 1000;
 
@@ -451,6 +495,7 @@ private:
             memoryMap[location] = 9999;
             cout << memoryMap[location] << " ";
             cout << "Error: Illegal opcode; treated as 9999" << endl;
+            currentMemoryLocation++;
             return;
         }
 
@@ -541,7 +586,8 @@ private:
         cout << endl;
         for (auto itr = symbolTable.begin(); itr != symbolTable.end(); itr++) {
             if (!itr->used) {
-                cout << "Warning: Module " << itr->moduleNum << ": " << itr->text << " was defined but never used" << endl;
+                cout << "Warning: Module " << itr->moduleNum << ": " << itr->text << " was defined but never used"
+                     << endl;
             }
         }
     }
