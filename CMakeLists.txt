@@ -3,4 +3,4 @@ project(Linker)
 
 set(CMAKE_CXX_STANDARD 11)
 
-add_executable(Linker main.cpp)
+add_executable(Linker Linker.cpp)

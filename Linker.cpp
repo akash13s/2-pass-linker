@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <map>
 #include <cctype>
+#include <algorithm>
+#include <cstring>
 
 using namespace std;
 
@@ -13,11 +15,13 @@ struct Token {
     char *text;
     int lineNumber;
     int lineOffset;
+    bool isEOF;
 
     Token(char *text, int lineNumber, int lineOffset) {
         this->text = text;
         this->lineNumber = lineNumber;
         this->lineOffset = lineOffset;
+        this->isEOF = false;
     }
 };
 
@@ -74,6 +78,7 @@ private:
     string filename;
     ifstream inputFile;
     string currentLine;
+    string previousLine;
     char *delimiters;
 
     // starts with 0
@@ -86,7 +91,7 @@ private:
 
     // memory location, [opcode, absolute address]
     int currentMemoryLocation;
-    map<string, int> memoryMap;
+    map<string, string> memoryMap;
 
     // unused symbols in module
     vector<string> unusedSymbols;
@@ -94,6 +99,15 @@ private:
     bool isDigit(char c) {
         return (c == '1' || c == '2' || c == '3' || c == '4' || c == '5' || c == '6' || c == '7' || c == '8' ||
                 c == '9' || c == '0');
+    }
+
+    string getMemoryRef(int m) {
+        string s = to_string(m);
+        int n = 4 - s.length();
+        for (int i = 0; i < n; i++) {
+            s = '0' + s;
+        }
+        return s;
     }
 
     bool isValidSymbol(string text) {
@@ -144,6 +158,15 @@ private:
                     getline(inputFile, currentLine);
                     lineNumber++;
                     lineOffset = 0;
+
+                    if (inputFile.eof()) {
+                        if (!currentLine.empty()) {
+                            previousLine = currentLine;
+                        }
+                    } else {
+                        previousLine = currentLine;
+                    }
+
                     currToken = strtok(&currentLine[0], delimiters);
                     if (currToken != nullptr) {
                         lineOffset = currentLine.find(currToken, lineOffset);
@@ -156,6 +179,7 @@ private:
                     inputFile.close();
                     char *c = "";
                     Token token(c, -1, -1);
+                    token.isEOF = true;
                     return token;
                 }
             } else {
@@ -209,7 +233,7 @@ private:
             }
         } else {
             // throw appropriate error
-            __parseError(1, lineNumber, lineOffset + 1);
+            __parseError(1, lineNumber, previousLine.length() + 1);
             exit(0);
         }
         if (!isValidSymbol(text)) {
@@ -383,7 +407,7 @@ private:
 //            string t = useList[0].text;
 //            memoryRef += getBaseAddressOf(t);
 
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
             cout << "Error: External operand exceeds length of uselist; treated as relative=0" << endl;
             return;
@@ -405,14 +429,14 @@ private:
                     unusedSymbols.erase(it);
                 }
 
-                memoryMap[location] = memoryRef;
+                memoryMap[location] = getMemoryRef(memoryRef);
                 cout << memoryMap[location] << endl;
                 break;
             }
         }
 
         if (!found) {
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
             cout << "Error: " << token << " is not defined; zero used" << endl;
         }
@@ -420,12 +444,12 @@ private:
 
     void resolveAbsoluteAddress(int operand, int memoryRef, string location) {
         if (operand >= 512) {
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
             cout << "Error: Absolute address exceeds machine size; zero used" << endl;
         } else {
             memoryRef += operand;
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << endl;
         }
     }
@@ -433,12 +457,12 @@ private:
     void resolveImmediateAddress(int operand, int memoryRef, string location) {
         if (operand >= 900) {
             memoryRef += 999;
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
             cout << "Error: Illegal immediate operand; treated as 999" << endl;
         } else {
             memoryRef += operand;
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << endl;
         }
     }
@@ -446,12 +470,12 @@ private:
     void resolveRelativeAddress(int operand, int instrCount, int memoryRef, string location) {
         if (operand >= instrCount) {
             memoryRef += baseAddrOfCurrentModule;
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
             cout << "Error: Relative address exceeds module size; relative zero used" << endl;
         } else {
             memoryRef += baseAddrOfCurrentModule + operand;
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << endl;
         }
     }
@@ -462,14 +486,14 @@ private:
             if (moduleTableEntry.moduleNum == operand) {
                 found = true;
                 memoryRef += moduleTableEntry.baseAddress;
-                memoryMap[location] = memoryRef;
+                memoryMap[location] = getMemoryRef(memoryRef);
                 cout << memoryMap[location] << endl;
                 break;
             }
         }
 
         if (!found) {
-            memoryMap[location] = memoryRef;
+            memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
             cout << "Error: Illegal module operand ; treated as module=0" << endl;
         }
@@ -492,7 +516,7 @@ private:
         cout << location << ": ";
 
         if (opcode >= 10) {
-            memoryMap[location] = 9999;
+            memoryMap[location] = getMemoryRef(9999);
             cout << memoryMap[location] << " ";
             cout << "Error: Illegal opcode; treated as 9999" << endl;
             currentMemoryLocation++;
@@ -635,8 +659,12 @@ public:
     }
 };
 
-int main() {
-    Tokenizer *tokenizer = new Tokenizer("/Users/akashshrivastva/Documents/OS/Linker/input.txt");
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        cout << "Invalid arguments";
+        return 0;
+    }
+    Tokenizer *tokenizer = new Tokenizer(argv[1]);
     tokenizer->parse();
     return 0;
 }
