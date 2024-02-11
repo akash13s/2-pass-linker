@@ -341,7 +341,7 @@ private:
 //            int prevLineNum = this->lineNumber;
 //            int prevLineOffset = this->lineOffset;
 
-            if (baseAddrOfCurrentModule + instrCount >= 512) {
+            if (baseAddrOfCurrentModule + instrCount > 512) {
                 __parseError(6, prevValidTokenLineNum + 1, prevValidTokenStartLineOffset + 1);
                 exit(0);
             }
@@ -406,7 +406,7 @@ private:
         if (operand >= useList.size() || operand < 0) {
 //            string t = useList[0].text;
 //            memoryRef += getBaseAddressOf(t);
-
+            memoryRef += baseAddrOfCurrentModule;
             memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
             cout << "Error: External operand exceeds length of uselist; treated as relative=0" << endl;
