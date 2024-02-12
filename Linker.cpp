@@ -138,19 +138,6 @@ private:
     }
 
     Token getToken() {
-        /*
-         * Check if file is open or close
-         * If file is open, check if the current token is null
-         *
-         * If current token is not null, continue reading from the current line till you get the next token
-         * If new token found->good
-         * Else call getToken again
-         *
-         * If current token is null, read a new line from the file
-         * Read the file till you get a new token->good
-         *
-         * check the line offset logic once and test the get token function thoroughly
-         */
 
         if (inputFile.is_open()) {
             if (currToken == nullptr) {
@@ -194,6 +181,8 @@ private:
             }
         } else {
             // throw appropriate error if input file is closed
+            cout << "Error: file is closed" << endl;
+            exit(0);
         }
     }
 
@@ -265,11 +254,13 @@ private:
             }
             if (text.length() > 1) {
                 // throw error
-                cout << "Error" << endl;
+                __parseError(2, token.lineNumber + 1, token.lineOffset + 1);
+                exit(0);
             }
             if (!isValidAddressingMode(text[0])) {
                 // throw appropriate error
-                cout << "Error" << endl;
+                __parseError(2, token.lineNumber + 1, token.lineOffset + 1);
+                exit(0);
             }
             prevValidTokenLineNum = lineNumber;
             prevValidTokenStartLineOffset = token.lineOffset;
@@ -338,9 +329,6 @@ private:
             // instruction list
             int instrCount = readInt();
 
-//            int prevLineNum = this->lineNumber;
-//            int prevLineOffset = this->lineOffset;
-
             if (baseAddrOfCurrentModule + instrCount > 512) {
                 __parseError(6, prevValidTokenLineNum + 1, prevValidTokenStartLineOffset + 1);
                 exit(0);
@@ -352,10 +340,6 @@ private:
             for (int i = 0; i < instrCount; i++) {
                 char addrMode = readMARIE();
                 int val = readInt();
-
-//                if (!validateInstruction(val)) {
-//                    // throw appropriate error
-//                }
             }
 
             for (auto itr = defList.begin(); itr != defList.end(); itr++) {
@@ -404,8 +388,6 @@ private:
     void resolveExternalAddress(int operand, vector<Symbol> &useList, int memoryRef, string location,
                                 vector<int> &useListVis) {
         if (operand >= useList.size() || operand < 0) {
-//            string t = useList[0].text;
-//            memoryRef += getBaseAddressOf(t);
             memoryRef += baseAddrOfCurrentModule;
             memoryMap[location] = getMemoryRef(memoryRef);
             cout << memoryMap[location] << " ";
